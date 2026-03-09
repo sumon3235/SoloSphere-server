@@ -83,12 +83,22 @@ async function run() {
     // update a bid status
     app.patch('/bid-status-update/:id', async(req, res) => {
       const id = req.params.id;
-      const {status} = req.body;
+      const {status, jobId} = req.body;
       const filter = {_id: new ObjectId(id)};
       const updated = {
         $set:{status}
       }
       const result = await bidsCollection.updateOne(filter, updated);
+
+      // change job status
+      if(status === "In Progress" && jobId) {
+        const filterJob = {_id: new ObjectId(jobId)};
+        const jobUpdated = {
+          $set: {status: "Closed"}
+        }
+        await jobCollection.updateOne(filterJob, jobUpdated)
+      }
+
       res.send(result);
     })
 
