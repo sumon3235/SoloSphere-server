@@ -109,6 +109,26 @@ async function run() {
       res.send(result);
     });
 
+    // Get All Job api
+    app.get('/get-allJobs', async(req, res) => {
+      const filter = req.query.filter;
+      const search = req.query.search;
+      const sort = req.query.sort
+      let options = {};
+      if(sort) options = {
+        sort:{deadline: sort === 'asc' ? 1 : -1}
+      }
+      let query = {
+        title: {
+          $regex: search, $options: 'i'
+        }
+      };
+      if(filter)query.category = filter
+      const cursor = jobCollection.find(query, options);
+      const result = await cursor.toArray();
+      res.send(result)
+    })
+
     // get login user posted job api
     app.get("/jobs/:email", async (req, res) => {
       const email = req.params.email;
