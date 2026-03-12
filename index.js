@@ -112,13 +112,11 @@ async function run() {
       const decodeEmail = req.user.email;
       const email = req.params.email;
       if (decodeEmail !== email) {
-        return res
-          .status(403)
-          .send({
-            message: "Forbidden Access!",
-          });
+        return res.status(403).send({
+          message: "Forbidden Access!",
+        });
       }
-      
+
       const buyer = req.query.buyer;
       let query = {};
       if (buyer) {
@@ -174,6 +172,8 @@ async function run() {
       const filter = req.query.filter;
       const search = req.query.search;
       const sort = req.query.sort;
+      const page = parseInt(req.query.page) || 0;
+      const size = parseInt(req.query.size) || 10;
       let options = {};
       if (sort)
         options = {
@@ -187,20 +187,22 @@ async function run() {
       };
       if (filter) query.category = filter;
       const cursor = jobCollection.find(query, options);
-      const result = await cursor.toArray();
+      const result = await jobCollection
+        .find(query, options)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
       res.send(result);
     });
 
     // get login user posted job api
     app.get("/jobs/:email", verifyToken, async (req, res) => {
-      const decodeEmail = req.params.email
+      const decodeEmail = req.params.email;
       const email = req.params.email;
       if (decodeEmail !== email) {
-        return res
-          .status(403)
-          .send({
-            message: "Forbidden Access!",
-          });
+        return res.status(403).send({
+          message: "Forbidden Access!",
+        });
       }
       const query = { "buyer.email": email };
       const result = await jobCollection.find(query).toArray();
@@ -226,6 +228,12 @@ async function run() {
       const filter = { _id: new ObjectId(id) };
       const result = await jobCollection.updateOne(filter, updateDoc, options);
       res.send(result);
+    });
+
+    // How many jobs are in the JobsApplication API
+    app.get("/jobs-count", async (req, res) => {
+      const count = await jobCollection.estimatedDocumentCount();
+      res.send({ count });
     });
 
     // Delet A posted Job api
