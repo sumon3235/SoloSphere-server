@@ -1,13 +1,21 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
 const port = process.env.PORT || 5000;
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  }),
+);
 app.use(express.json());
+app.use(cookieParser());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.5jgflna.mongodb.net/?appName=Cluster0`;
 console.log(uri);
@@ -26,6 +34,47 @@ async function run() {
     const myDb = client.db("solo");
     const jobCollection = myDb.collection("jobs");
     const bidsCollection = myDb.collection("bids");
+
+    // Jwt Token Authentication
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, `${process.env.VITE_SECRETKEY}`, {
+        expiresIn: "365d",
+      });
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    // Clear A token From Browser
+    app.get("/logout", (req, res) => {
+      res
+        .clearCookie("token", {
+          maxAge: 0,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    // Verify Token Funtion
+    const verifyToken = (req, res, next) => {
+      const token = req.cookies?.token;
+      if (!token) {
+        return res.status(401).send({ Message: "UnAuthorized Access" });
+      }
+      jwt.verify(token, `${process.env.VITE_SECRETKEY}`, (err, decode) => {
+        if (err) {
+          return res.status(401).send("unAuthorized token");
+        }
+        req.user = decode;
+        next();
+      });
+    };
 
     // post jobs api
     app.post("/addJob", async (req, res) => {
@@ -59,48 +108,59 @@ async function run() {
     });
 
     // get All bids for specific user
-    app.get('/bids/:email', async(req, res) => {
+    app.get("/bids/:email", verifyToken, async (req, res) => {
+      const decodeEmail = req.user.email;
       const email = req.params.email;
+      if (decodeEmail !== email) {
+        return res
+          .status(403)
+          .send({
+            message: "Forbidden Access!",
+          });
+      }
+      
       const buyer = req.query.buyer;
       let query = {};
-      if(buyer) {
-        query.buyer = email
-      }else{
-        query.email = email
+      if (buyer) {
+        query.buyer = email;
+      } else {
+        query.email = email;
       }
       const result = await bidsCollection.find(query).toArray();
       res.send(result);
-    })
+    });
 
     // bid request for specific user
-      app.get('/bid-request/:email', async(req, res) => {
+    app.get("/bid-request/:email", verifyToken, async (req, res) => {
+      const decodeEmail = req.user.email;
+      console.log(decodeEmail);
       const email = req.params.email;
-      const query = {buyer:email};
+      const query = { buyer: email };
       const result = await bidsCollection.find(query).toArray();
       res.send(result);
-    })
+    });
 
     // update a bid status
-    app.patch('/bid-status-update/:id', async(req, res) => {
+    app.patch("/bid-status-update/:id", async (req, res) => {
       const id = req.params.id;
-      const {status, jobId} = req.body;
-      const filter = {_id: new ObjectId(id)};
+      const { status, jobId } = req.body;
+      const filter = { _id: new ObjectId(id) };
       const updated = {
-        $set:{status}
-      }
+        $set: { status },
+      };
       const result = await bidsCollection.updateOne(filter, updated);
 
       // change job status
-      if(status === "In Progress" && jobId) {
-        const filterJob = {_id: new ObjectId(jobId)};
+      if (status === "In Progress" && jobId) {
+        const filterJob = { _id: new ObjectId(jobId) };
         const jobUpdated = {
-          $set: {status: "Closed"}
-        }
-        await jobCollection.updateOne(filterJob, jobUpdated)
+          $set: { status: "Closed" },
+        };
+        await jobCollection.updateOne(filterJob, jobUpdated);
       }
 
       res.send(result);
-    })
+    });
 
     // get all the posted job api
     app.get("/addJob", async (req, res) => {
@@ -110,28 +170,38 @@ async function run() {
     });
 
     // Get All Job api
-    app.get('/get-allJobs', async(req, res) => {
+    app.get("/get-allJobs", async (req, res) => {
       const filter = req.query.filter;
       const search = req.query.search;
-      const sort = req.query.sort
+      const sort = req.query.sort;
       let options = {};
-      if(sort) options = {
-        sort:{deadline: sort === 'asc' ? 1 : -1}
-      }
+      if (sort)
+        options = {
+          sort: { deadline: sort === "asc" ? 1 : -1 },
+        };
       let query = {
         title: {
-          $regex: search, $options: 'i'
-        }
+          $regex: search,
+          $options: "i",
+        },
       };
-      if(filter)query.category = filter
+      if (filter) query.category = filter;
       const cursor = jobCollection.find(query, options);
       const result = await cursor.toArray();
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     // get login user posted job api
-    app.get("/jobs/:email", async (req, res) => {
+    app.get("/jobs/:email", verifyToken, async (req, res) => {
+      const decodeEmail = req.params.email
       const email = req.params.email;
+      if (decodeEmail !== email) {
+        return res
+          .status(403)
+          .send({
+            message: "Forbidden Access!",
+          });
+      }
       const query = { "buyer.email": email };
       const result = await jobCollection.find(query).toArray();
       res.send(result);
